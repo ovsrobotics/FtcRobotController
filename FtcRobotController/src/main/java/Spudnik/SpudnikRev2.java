@@ -29,6 +29,9 @@
 //Add speaker, spoiler, mudflaps (and reverse alarm), tinted PlexiGlass
 package Spudnik;
 
+import android.provider.CalendarContract;
+import android.widget.Button;
+
 import com.qualcomm.hardware.bosch.BNO055IMU;
 import com.qualcomm.hardware.bosch.JustLoggingAccelerationIntegrator;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
@@ -36,14 +39,19 @@ import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.eventloop.opmode.Disabled;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
+import com.qualcomm.robotcore.hardware.DistanceSensor;
+import com.qualcomm.robotcore.hardware.OpticalDistanceSensor;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 import com.qualcomm.robotcore.util.Range;
 
+
+import org.firstinspires.ftc.robotcontroller.external.samples.SensorREV2mDistance;
 import org.firstinspires.ftc.robotcore.external.navigation.Acceleration;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.AxesOrder;
 import org.firstinspires.ftc.robotcore.external.navigation.AxesReference;
+import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
 import org.firstinspires.ftc.robotcore.external.navigation.Position;
 import org.firstinspires.ftc.robotcore.external.navigation.Velocity;
@@ -51,97 +59,26 @@ import org.firstinspires.ftc.robotcore.external.navigation.Velocity;
 import java.util.NavigableMap;
 
 
-/**
- * This file contains an minimal example of a Linear "OpMode". An OpMode is a 'program' that runs in either
- * the autonomous or the teleop period of an FTC match. The names of OpModes appear on the menu
- * of the FTC Driver Station. When an selection is made from the menu, the corresponding OpMode
- * class is instantiated on the Robot Controller and executed.
- *
- * This particular OpMode just executes a basic Tank Drive Teleop for a two wheeled robot
- * It includes all the skeletal structure that all linear OpModes contain.bb
- *        Integrate manipulators on robot.
- Programming to add code to enable the manipulators.
- Complete Control Award paperwork (if applicable).
- Experiment and learn about sensors.
- Rehearse presentation for judged awards at events.
- Review the Preparing for a Competition.
-
- Week 6 – Meet Zero Week – OCT 23-30
-
- Improve manipulators.
- Determine how sensors can be used on the robot to help improve performance.
- Review the Pre-Match Checklist.
-
- Week 7 – OCT 31-NOV 5
-
- Practice using manipulators with game elements.
- Adjust manipulators.
- Continue to improve robot (may require more parts).
 
 
- Week 8 – Meet 1 – NOV 6-13
-
- Improve programming.
- Prep and practice for competition.
- Develop a competition checklist.
-
- Week 9 – NOV 14-19  (Then go on Thanksgiving Break)
-
- Tune-up robot for next competition.
- Schedule outreach activity.
-
- Week 10 – NOV 29 – DEC 04
-
- Competition Season Week 11
- Competition Season
-
- Week 11 – DEC 05-11 - Meet 2
-
- Improve all you can.
-
- Week 12 – JAN 10-15
-
- Improve all you can.
-
- Week 13 – JAN 16-22 – Meet 3
-
- Sign up for Qualifier, WHICH ONE? We can choose
- Schedule Dean’s List nominations for the 15th of the month prior to an event.
- Sign up for Qualifier, WHICH ONE? We can choose
- Schedule Dean’s List nominations for the 15th of the month prior to an event.
-
- Week 14 – Qualifier Tournament
-
- Prep for State/Region Championships (if applicable)
- Develop videos for Compass and Promote award
- Start fundraising for World Championship (if applicable)
-
-
-
- Progamming Resources
-
- Android Studio URL
- JAVA SDK URL
- WINDOWS USERS: Java installation instructions URL
- programming re
- * Use Android Studios to Copy this Class, and Paste it into your team's code folder with a new name.
- * Remove or comment out the @Disabled line to add this opmode to the Driver Station OpMode list
- */
-
-@TeleOp(name="SpudnikMaster2", group="Linear Opmode")
+@TeleOp(name="SpudnikMaster (click this one)", group="Linear Opmode")
 //@Disabled
 public class SpudnikRev2 extends LinearOpMode {
 
     // Declare OpMode members.
-    private ElapsedTime runtime = new ElapsedTime();
+    private final ElapsedTime runtime = new ElapsedTime();
 
     private DcMotor leftDrive = null;
     private DcMotor rightDrive = null;
 
     private DcMotor duck = null;
     private DcMotor armRaise = null;
+    private DcMotor help = null;
     private Servo clampServo = null;
     private Servo spoiler = null;
+
+    private DistanceSensor spinSensor = null;
+
 
     private BNO055IMU imu = null;
 
@@ -172,14 +109,18 @@ public class SpudnikRev2 extends LinearOpMode {
         // step (using the FTC Robot Conprivate DcMotor raise = null;troller app on the phone).
         leftDrive  = hardwareMap.get(DcMotor.class, "left_drive");
         rightDrive = hardwareMap.get(DcMotor.class, "right_drive");
+        help = hardwareMap.get(DcMotor.class, "help");
         duck = hardwareMap.get(DcMotor.class, "spin");
         clampServo = hardwareMap.get(Servo.class, "clamp");
         armRaise = hardwareMap.get(DcMotor.class, "raise");
         spoiler = hardwareMap.get(Servo.class, "spoiler");
+        spinSensor = hardwareMap.get(DistanceSensor.class, "spinSensor");
+
 
 
         // Most robots need the motor on one side to be reversed to drive forward
         // Reverse the motor that runs backwards when connected directly to the battery
+        help.setDirection(DcMotorSimple.Direction.FORWARD);
         leftDrive.setDirection(DcMotor.Direction.REVERSE);
         rightDrive.setDirection(DcMotor.Direction.FORWARD);
         duck.setDirection(DcMotor.Direction.FORWARD);
@@ -210,14 +151,14 @@ public class SpudnikRev2 extends LinearOpMode {
             double rightPower;
             double spinPower; //power for duck spin
             double raisePower;
-            // Choose to drive using either Tank Mode, or POV Mode
-            // Comment out the method that's not used.  The default below is POV.
 
-            // POV Mode uses left stick to go forward, and right stick to turn.
-            // - This uses basic math to combine motions and is easier to drive straight.
             double drive = -gamepad1.left_stick_y;
             double turn  =  gamepad1.right_stick_x;
             boolean isClamp = true;
+
+            double spinNum = spinSensor.getDistance(DistanceUnit.CM);
+            // Comment out the method that's not used.  The default below is POV.
+
 
             imu.startAccelerationIntegration(new Position(), new Velocity(), 1000);
             checkOrientation();
@@ -227,13 +168,23 @@ public class SpudnikRev2 extends LinearOpMode {
 
 
 
-            if(gamepad1.a || gamepad2.a) spinPower = 100; //if a button is pressed, sets power to spin 100
-            else if(gamepad1.y || gamepad2.y) spinPower = -100;
-            else spinPower = 0; //not pressing, power is off
+            if(gamepad1.a) {
+                spinPower = 100; //if a button is pressed, sets power to spin 100
+                duck.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+
+            }
+            else if(gamepad1.y) {
+                spinPower = -100;
+                duck.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+            }
+            else {
+                spinPower = 0; //not pressing, power is off
+                duck.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+                sleep(5);
+            }
 
 
-            if(gamepad2.right_trigger >= .1 || gamepad1.right_trigger >= .1 ) isClamp = false;
-            else isClamp = true;
+            isClamp = !(gamepad2.right_trigger >= .1) && !(gamepad1.right_trigger >= .1);
 
             if(isClamp) clampServo.setPosition(1); //sets position of servo
             else clampServo.setPosition(0);
@@ -259,6 +210,10 @@ public class SpudnikRev2 extends LinearOpMode {
             }
             else spoiler.setPosition(1);
 
+            if(gamepad1.dpad_down) help.setPower(-100);
+            else if(gamepad1.dpad_up) help.setPower(100);
+            else help.setPower(0);
+
             leftDrive.setPower(leftPower);
             rightDrive.setPower(rightPower);
 
@@ -268,6 +223,7 @@ public class SpudnikRev2 extends LinearOpMode {
             telemetry.addData("Clamp", "Trigger1 (%.2f), Trigger2 (%.2f)", gamepad1.right_trigger, gamepad2.right_trigger);
             telemetry.addData("CarSpin", "Motor (%2f)", spinPower);
             telemetry.addData("ArmRaise", "Motor (%2f)", raisePower);
+            telemetry.addData("SpinSense", "CM (%2f)", spinNum);
             telemetry.update();
         }
     }
@@ -299,5 +255,6 @@ public class SpudnikRev2 extends LinearOpMode {
         mapX = map.x;
         mapY = map.y;
         telemetry.addData("X - Y Map", "X (%2f), Y (%2f)", mapX, mapY);
+
     }
 }
