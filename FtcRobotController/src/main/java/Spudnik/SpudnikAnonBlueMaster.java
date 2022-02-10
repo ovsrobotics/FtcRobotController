@@ -3,12 +3,15 @@ package Spudnik;
 import android.app.admin.DelegatedAdminReceiver;
 import android.widget.Button;
 
+import androidx.annotation.VisibleForTesting;
+
 import com.qualcomm.hardware.bosch.BNO055IMU;
 import com.qualcomm.hardware.rev.RevColorSensorV3;
 import com.qualcomm.hardware.rev.RevTouchSensor;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.Disabled;
+import com.qualcomm.robotcore.hardware.ColorRangeSensor;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
@@ -45,14 +48,15 @@ public class SpudnikAnonBlueMaster extends LinearOpMode { //class config
     private DistanceSensor spinSensor = null;
     private RevTouchSensor duckButton = null;
     private RevTouchSensor button = null;
-    private RevColorSensorV3 capSensor = null;
-    private Servo duckServo = null;
     private Servo clampServo = null; //servo for clamp
 
     private DcMotor armRaise = null; //arm raiser
 
 
     private int stage = 0; //stage for auto
+    private DcMotorEx autoArm = null;
+    private Servo autoClamp = null;
+    private Servo autoServoArm = null;
 
 
 
@@ -77,26 +81,85 @@ public class SpudnikAnonBlueMaster extends LinearOpMode { //class config
     private double numSen = 0;
     private boolean isClamp = true; //set clamp to true
     private boolean firstrun = true;
-
+    private boolean isColorFound = false;
+    private int stage3 = 0;
     @Override
     public void runOpMode() {
         initEverything();
+
         while (opModeIsActive()) { //while auto is running
+            clampServo.setPosition(1);
+            /*  //raw readings that could be used, not that simple however
+            setRunMotors(700, 700);
+            setRunMotors(-1636, 1774);
+            duck.setPower(-1);
+            sleep(4000);
+            duck.setPower(0);
+            setRunMotors(-107, -192);
+            setRunMotors(705, 664);
+            setRunMotors(-881, 1860);
+            setRunMotors(676, 3694);
+            */
             getTelemetry(); //gets the telemetry
             getNumbers(); // gets the number for hte teltery
-            goSomewhere(500); //goes to forward by a little
+            goSomewhere(300); //goes to forward by a little
+           // sleep(300);
             turnLeft(90); //turns left 90 degrees
             goSomewhere(-800); //goes backwards into the duck spinner
-            duck.setPower(1); //turn on the duck spinner
-            sleep(4000); //sleeps for 4 seconds, allows duck to fall off
+            duck.setPower(-1); //turn on the duck spinner
+           sleep(4000); //sleeps for 4 seconds, allows duck to fall off
             duck.setPower(0); //turn off duck spinner
-            goSomewhere(3000); //go forwards
-            armRaise.setPower(1); //raise arm
-            sleep(1000); //sleep for 1 second to allow arm to raise
-            armRaise.setPower(0); //turn of power to arm
-            goSomewhere(300); //go forward
-            goSomewhere(300);
+            goSomewhere(200);
+            turnRight(0); //turn right 90, so it get closer to the barcode
+            goSomewhere(950); //go forwards towards the barcode
+            turnLeft(90); //align to the wahehouse
+            leftDrive.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER); // run iwhtout encoder
+            rightDrive.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
 
+            leftDrive.setPower(-1); //go backwards into the wall
+            rightDrive.setPower(-1);
+            sleep(500); //let it have some time to back into it
+            leftDrive.setPower(0); //stop the motors
+            rightDrive.setPower(0);
+            autoServoArm.setPosition(.3);
+            resetEncoders(); //reset the encoder, they are now online
+            goSomewhere(2300); //go to the first barcode
+            sleep(1000); //let it scan
+            getNumbers();
+            sleep(1000);
+
+            if(numSen <= 30) { //if there is a capping element, the stage is 3
+                stage3 = 3;
+                /*
+                armRaise.setPower(1);
+                sleep(1500);
+                armRaise.setPower(0);
+                autoServoArm.setPosition(.5);
+                 */
+                autoServoArm.setPosition(.4);
+            }
+            goSomewhere(850); //if there is a capping element, the stage is 2
+            getNumbers();
+            sleep(1000);
+            if(numSen <= 30) {
+                stage3 = 2;
+                autoServoArm.setPosition(.4);
+            }
+            else{
+
+                autoArm.setPower(-1);
+                sleep(500);
+                autoArm.setPower(0);
+                autoServoArm.setPosition(.25);
+
+            }
+            goSomewhere(900);
+            sleep(1000); //stop the drive motors
+            autoClamp.setPosition(1); //drop the cube into the level
+            sleep(1000);
+            goSomewhere(7000); //straight into the warehouse
+            autoClamp.setPosition(1); //engage the clamp servo
+            autoServoArm.setPosition(0); //swing the servo arm into the original position
             //turn off all the encoders, so it doesn't mess up the encoders
             leftDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
             rightDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
@@ -112,25 +175,67 @@ public class SpudnikAnonBlueMaster extends LinearOpMode { //class config
 
     }
 
-
-    public void turnRight(int input){
-        resetEncoders(input);
+    public void setRunMotors(int leftTicks, int rightTicks){ //this is the raw data if precise calcualtions most be made (ex if there has to be 600 ticks forward and -300 ticks backward)
 
         leftDrive.setMotorEnable();
         rightDrive.setMotorEnable();
-        leftDrive.setTargetPosition(input);
-        rightDrive.setTargetPosition(-input);
+        leftDrive.setTargetPosition(10000);
+        rightDrive.setTargetPosition(-10000);
+        leftDrive.setVelocity(2000);
+        rightDrive.setVelocity(-2000);
+
+        leftDrive.setTargetPosition(leftTicks);
+        rightDrive.setTargetPosition(rightTicks);
+        if(leftTicks < 0) leftDrive.setVelocity(-2000);
+        else leftDrive.setVelocity(2000);
+
+        if(rightTicks < 0) rightDrive.setVelocity(-2000);
+        else rightDrive.setVelocity(2000);
+
+
+        while(leftDrive.isBusy() && rightDrive.isBusy()){
+            getTelemetry();
+            getNumbers();
+        }
+        sleep(1000);
+
+    }
+
+    public void turnRight(int degrees){
+        resetEncoders();
+
+        leftDrive.setMotorEnable();
+        rightDrive.setMotorEnable();
+        leftDrive.setTargetPosition(10000);
+        rightDrive.setTargetPosition(-10000);
         leftDrive.setVelocity(2000);
         rightDrive.setVelocity(-2000);
 
         while(leftDrive.isBusy() || rightDrive.isBusy()){
             getTelemetry();
             getNumbers();
+            if(curHeading <= degrees - 50) {
+                leftDrive.setVelocity(-1000);
+                rightDrive.setVelocity(1000);
+            }
+            if(curHeading <= degrees - 40) {
+                leftDrive.setVelocity(-500);
+                rightDrive.setVelocity(500);
+            }
+            if(curHeading <= degrees - 5){
+                leftDrive.setVelocity(10);
+                rightDrive.setVelocity(10);
+            }
+            if(curHeading <= degrees){
+                break;
+            }
+
         }
 
     }
+
     public void turnLeft(int degrees){
-        resetEncoders(0);
+        resetEncoders();
 
         leftDrive.setMotorEnable();
         rightDrive.setMotorEnable();
@@ -142,24 +247,28 @@ public class SpudnikAnonBlueMaster extends LinearOpMode { //class config
         while(leftDrive.isBusy() || rightDrive.isBusy()){
             getTelemetry();
             getNumbers();
-            if(curHeading >= degrees - 20) {
+            if(curHeading >= degrees - 50) {
                 leftDrive.setVelocity(-1000);
                 rightDrive.setVelocity(1000);
             }
-            if(curHeading >= degrees - 10) {
+            if(curHeading >= degrees - 40) {
                 leftDrive.setVelocity(-500);
                 rightDrive.setVelocity(500);
             }
             if(curHeading >= degrees - 5){
-                leftDrive.setVelocity(0);
-                rightDrive.setVelocity(0);
+                leftDrive.setVelocity(10);
+                rightDrive.setVelocity(10);
+            }
+            if(curHeading >= degrees){
                 break;
             }
         }
     }
-    public void goSomewhere(int input){
-        resetEncoders(input);
 
+    public void goSomewhere(int input){
+        resetEncoders();
+        leftDrive.setTargetPosition(input);
+        rightDrive.setTargetPosition(input);
         if(input < 0) {
             leftDrive.setVelocity(-2000);
             rightDrive.setVelocity(-2000);
@@ -168,19 +277,19 @@ public class SpudnikAnonBlueMaster extends LinearOpMode { //class config
             leftDrive.setVelocity(2000);
             rightDrive.setVelocity(2000);
         }
-        while(roughBusy(50)){
+        while(leftDrive.isBusy() && rightDrive.isBusy()){
             getTelemetry();
             getNumbers();
         }
 
     }
 
-    public void resetEncoders(int input){
+    public void resetEncoders(){
         leftDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         rightDrive.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
 
-        leftDrive.setTargetPosition(input);
-        rightDrive.setTargetPosition(input);
+        leftDrive.setTargetPosition(0);
+        rightDrive.setTargetPosition(0);
         leftDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
         rightDrive.setMode(DcMotor.RunMode.RUN_TO_POSITION);
     }
@@ -194,11 +303,13 @@ public class SpudnikAnonBlueMaster extends LinearOpMode { //class config
         spinPower = 0; //power for duck spin
         raisePower = 0; //declare power for arm pwo
         numSen = spinSensor.getDistance(DistanceUnit.CM);
+
+
     }
     public boolean roughBusy(int howOff){
 
-        if(leftDrive.getCurrentPosition() - leftDrive.getTargetPosition() <= howOff && leftDrive.getCurrentPosition() - leftDrive.getTargetPosition() >= -howOff) return true;
-        if(rightDrive.getCurrentPosition() - rightDrive.getTargetPosition() <= howOff && rightDrive.getCurrentPosition() - rightDrive.getTargetPosition() >= -howOff) return true;
+        if(leftDrive.getCurrentPosition() - leftDrive.getTargetPosition() <= howOff ) return true;
+        if(rightDrive.getCurrentPosition() - rightDrive.getTargetPosition() <= howOff) return true;
         else return false;
 
     }
@@ -221,8 +332,12 @@ public class SpudnikAnonBlueMaster extends LinearOpMode { //class config
         armRaise = hardwareMap.get(DcMotor.class, "raise"); //servo hardware class
         spinSensor = hardwareMap.get(DistanceSensor.class, "spinSensor");
         duckButton = hardwareMap.get(RevTouchSensor.class, "duckButton");
-        duckServo = hardwareMap.get(Servo.class, "duckServo");
         button = hardwareMap.get(RevTouchSensor.class, "button");
+
+
+        autoArm = hardwareMap.get(DcMotorEx.class, "auto");
+        autoClamp = hardwareMap.get(Servo.class, "autoclamp");
+        autoServoArm = hardwareMap.get(Servo.class, "autoservo");
 
         imu = hardwareMap.get(BNO055IMU.class, "imu"); //imu hardware class
         BNO055IMU.Parameters parameters = new BNO055IMU.Parameters(); //make new parameters
@@ -233,7 +348,7 @@ public class SpudnikAnonBlueMaster extends LinearOpMode { //class config
         parameters.loggingTag          = "IMU"; //logs as IMU (see logcat)
         parameters.accelerationIntegrationAlgorithm = new JustLoggingAccelerationIntegrator(); //log acceleration
         imu.initialize(parameters); //initialize all parameters
-        imu.startAccelerationIntegration(new Position(), new Velocity(), 1000); //calibrate the parameters
+        imu.startAccelerationIntegration(new Position(), new Velocity(), 1000); //calibrate the paramete
 
 
 
@@ -249,6 +364,17 @@ public class SpudnikAnonBlueMaster extends LinearOpMode { //class config
 
 
         // Wait for the game to start (driver presses PLAY)
+        clampServo.setPosition(1);
+        autoClamp.setPosition(0);
+        sleep(1000);
+        autoArm.setPower(1);
+        sleep(1500);
+        autoArm.setPower(0);
+        autoServoArm.setPosition(.25);
+        sleep(100);
+        autoArm.setPower(-1);
+        sleep(1500);
+        autoArm.setPower(0);
         waitForStart(); //wait for start
         runtime.reset(); //once started, reset clock
 
@@ -293,7 +419,7 @@ public class SpudnikAnonBlueMaster extends LinearOpMode { //class config
         telemetry.addData("position", leftDrive.getCurrentPosition());
         telemetry.addData("position", rightDrive.getCurrentPosition());
         telemetry.addData("isBusy", leftDrive.isBusy());
-        telemetry.update(); //update
+        telemetry.update();
 
     }
 
